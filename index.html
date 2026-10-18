@@ -39,7 +39,7 @@
 
 <script>
 // ★ GASのウェブアプリURL(https://script.google.com/macros/s/xxxx/exec)を貼る
-const GAS_URL = '';
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbzxHYKBxU8WwgmxUG6dBFValCEA9sJhtGZPjQl_i7uWausvOkKe7bjdUqPV9UXk4WO8BQ/exec';
 
 const $ = id => document.getElementById(id);
 let data = {};          // { "1234": "A-12" }
@@ -47,18 +47,20 @@ let editing = false;    // 登録・編集フォーム表示中か
 
 $('mode').textContent = 'Google Driveに保存(GAS接続)';
 
+async function call(params) {
+  const res = await fetch(GAS_URL + '?' + new URLSearchParams(params));
+  const text = await res.text();
+  let j;
+  try { j = JSON.parse(text); }
+  catch { throw new Error('GASの応答がJSONではありません: ' + text.slice(0, 60)); }
+  if (!j.ok) throw new Error(j.error);
+  data = j.data;
+}
 async function load() {
   if (!GAS_URL) throw new Error('GAS_URL が未設定です(index.html冒頭に貼ってください)');
-  const j = await (await fetch(GAS_URL)).json();
-  if (!j.ok) throw new Error(j.error);
-  data = j.data;
+  await call({});
 }
-async function send(payload) {
-  // Content-Type未指定(text/plain)でCORSプリフライトを回避
-  const j = await (await fetch(GAS_URL, { method: 'POST', body: JSON.stringify(payload) })).json();
-  if (!j.ok) throw new Error(j.error);
-  data = j.data;
-}
+async function send(payload) { await call(payload); }
 async function run(payload, okMsg) {
   try { await send(payload); toast(okMsg); } catch (e) { toast('エラー: ' + e.message); }
   editing = false;
