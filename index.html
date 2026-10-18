@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>売り場検索</title>
+<style>
+  :root { --bg:#f6f5f1; --card:#fff; --ink:#222; --sub:#777; --acc:#1f6f5c; --danger:#b3261e; --line:#e2e0d9; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#161716; --card:#222423; --ink:#eee; --sub:#9a9a9a; --acc:#5fc4a8; --danger:#f2837c; --line:#3a3c3b; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif; }
+  main { max-width:480px; margin:0 auto; padding:20px 16px 60px; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  .mode { font-size:12px; color:var(--sub); margin-bottom:16px; }
+  #jan { width:100%; font-size:40px; letter-spacing:.3em; text-align:center; padding:12px; border:2px solid var(--line); border-radius:12px; background:var(--card); color:var(--ink); }
+  #jan:focus { outline:none; border-color:var(--acc); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; margin-top:12px; }
+  .loc { font-size:48px; font-weight:700; color:var(--acc); line-height:1.1; }
+  .row { display:flex; gap:8px; margin-top:12px; }
+  button { flex:1; padding:12px; font-size:16px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--ink); }
+  button.primary { background:var(--acc); color:#fff; border-color:var(--acc); }
+  button.danger { color:var(--danger); }
+  input.f { width:100%; padding:10px; font-size:20px; margin-top:8px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--ink); }
+  .msg { color:var(--sub); text-align:center; padding:8px 0; }
+  .toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%); background:#333; color:#fff; padding:10px 16px; border-radius:20px; font-size:14px; opacity:0; transition:.2s; pointer-events:none; }
+  .toast.on { opacity:1; }
+</style>
+</head>
+<body>
+<main>
+  <h1>売り場検索</h1>
+  <div class="mode" id="mode"></div>
+  <input id="jan" type="text" inputmode="numeric" maxlength="4" placeholder="JAN末4桁" autocomplete="off" autofocus>
+  <div id="out"></div>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+// ★ GASのウェブアプリURL(https://script.google.com/macros/s/xxxx/exec)を貼る
+const GAS_URL = '';
+
+const $ = id => document.getElementById(id);
+let data = {};          // { "1234": "A-12" }
+let editing = false;    // 登録・編集フォーム表示中か
+
+$('mode').textContent = 'Google Driveに保存(GAS接続)';
+
+async function load() {
+  if (!GAS_URL) throw new Error('GAS_URL が未設定です(index.html冒頭に貼ってください)');
+  const j = await (await fetch(GAS_URL)).json();
+  if (!j.ok) throw new Error(j.error);
+  data = j.data;
+}
+async function send(payload) {
+  // Content-Type未指定(text/plain)でCORSプリフライトを回避
+  const j = await (await fetch(GAS_URL, { method: 'POST', body: JSON.stringify(payload) })).json();
+  if (!j.ok) throw new Error(j.error);
+  data = j.data;
+}
+async function run(payload, okMsg) {
+  try { await send(payload); toast(okMsg); } catch (e) { toast('エラー: ' + e.message); }
+  editing = false;
+  render();
+}
+
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function toast(t) { const el = $('toast'); el.textContent = t; el.classList.add('on'); setTimeout(() => el.classList.remove('on'), 1800); }
+
+function render() {
+  const jan = $('jan').value, out = $('out');
+  if (jan.length < 4) { out.innerHTML = '<div class="msg">末尾4桁を入力してください</div>'; return; }
+  const loc = data[jan];
+
+  if (editing) {   // 新規登録 or 編集
+    out.innerHTML = `<div class="card">
+      <div>${loc === undefined ? '新規登録' : '編集'}:売り場番号</div>
+      <input class="f" id="f-loc" value="${esc(loc ?? '')}" placeholder="例: 12" autofocus>
+      <div class="row"><button onclick="cancel()">キャンセル</button>
+      <button class="primary" onclick="save()">保存</button></div></div>`;
+    return;
+  }
+  if (loc === undefined) {   // 未登録
+    out.innerHTML = `<div class="card"><div class="msg">未登録です</div>
+      <div class="row"><button class="primary" onclick="start()">新しく登録する</button></div></div>`;
+    return;
+  }
+  out.innerHTML = `<div class="card"><div class="loc">${esc(loc)}</div>
+    <div class="row"><button onclick="start()">編集</button>
+    <button class="danger" onclick="del()">削除</button></div></div>`;
+}
+
+function start() { editing = true; render(); }
+function cancel() { editing = false; render(); }
+function save() {
+  const loc = $('f-loc').value.trim();
+  if (!loc) { toast('売り場番号を入力してください'); return; }
+  run({ action: 'set', jan4: $('jan').value, loc }, '保存しました');
+}
+function del() {
+  const jan = $('jan').value;
+  if (confirm(`${jan} の登録(売り場 ${data[jan]})を削除しますか?`)) run({ action: 'delete', jan4: jan }, '削除しました');
+}
+
+$('jan').addEventListener('input', e => {
+  e.target.value = e.target.value.replace(/\D/g, '').slice(0, 4);
+  editing = false;
+  render();
+});
+
+load().then(render).catch(e => { $('out').innerHTML = `<div class="msg">読み込み失敗: ${esc(e.message)}</div>`; });
+</script>
+</body>
+</html>
